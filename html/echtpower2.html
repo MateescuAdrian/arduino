@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 Robot Remote (ZQSD)</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            text-align: center;
+            background: #1a1a1a;
+            color: #eee;
+        }
+
+        .container {
+            margin-top: 50px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 100px 100px 100px;
+            grid-gap: 10px;
+            justify-content: center;
+            margin: 20px auto;
+        }
+
+        button {
+            width: 100px;
+            height: 100px;
+            font-size: 18px;
+            font-weight: bold;
+            border-radius: 15px;
+            border: 2px solid #444;
+            background: #333;
+            color: white;
+            cursor: pointer;
+            transition: 0.1s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        button:active,
+        button.active {
+            background: #00ff00;
+            color: black;
+            transform: scale(0.95);
+        }
+
+        .stop-btn {
+            background: #800000;
+            border-color: #ff0000;
+        }
+
+        .diag-btn {
+            font-size: 14px;
+        }
+
+        input[type="text"] {
+            padding: 10px;
+            border-radius: 5px;
+            border: none;
+            width: 200px;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        kbd {
+            background: #444;
+            padding: 2px 6px;
+            border-radius: 4px;
+            color: #00ff00;
+        }
+
+        .toggle-container {
+            margin-top: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .toggle-switch {
+            position: relative;
+            width: 50px;
+            height: 26px;
+        }
+
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #444;
+            transition: 0.3s;
+            border-radius: 26px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 20px;
+            width: 20px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: 0.3s;
+            border-radius: 50%;
+        }
+
+        input:checked+.slider {
+            background-color: #00ff00;
+        }
+
+        input:checked+.slider:before {
+            transform: translateX(24px);
+        }
+
+        .speed-control {
+            margin: 15px auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .speed-control input[type="range"] {
+            width: 200px;
+        }
+
+        #status {
+            margin-top: 10px;
+            font-family: monospace;
+            color: #888;
+            font-size: 14px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <h1>Robot Controller (ZQSD)</h1>
+        <input type="text" id="ipAddress" value="192.168.0.133">
+
+        <div class="speed-control">
+            <span>Speed:</span>
+            <input type="range" id="speedSlider" min="0" max="255" value="150">
+            <span id="speedValue">150</span>
+        </div>
+
+        <div class="grid">
+            <!-- Row 1: diag-left-up, forward, diag-right-up -->
+            <button class="diag-btn" id="btnAZ" onclick="sendCommand('AZ')">↖ Q+Z</button>
+            <button id="btnZ" onclick="sendCommand('Z')">▲ Z</button>
+            <button class="diag-btn" id="btnEZ" onclick="sendCommand('EZ')">↗ D+Z</button>
+
+            <!-- Row 2: left, stop, right -->
+            <button id="btnQ" onclick="sendCommand('Q')">◀ Q</button>
+            <button class="stop-btn" onclick="sendCommand('STOP')">STOP</button>
+            <button id="btnD" onclick="sendCommand('D')">▶ D</button>
+
+            <!-- Row 3: diag-left-down, backward, diag-right-down -->
+            <button class="diag-btn" id="btnAS" onclick="sendCommand('AS')">↙ Q+S</button>
+            <button id="btnS" onclick="sendCommand('S')">▼ S</button>
+            <button class="diag-btn" id="btnES" onclick="sendCommand('ES')">↘ D+S</button>
+        </div>
+
+        <p>Drive with <kbd>Z</kbd> <kbd>Q</kbd> <kbd>S</kbd> <kbd>D</kbd> | Diagonals with combos | Stop with
+            <kbd>E</kbd> or <kbd>Space</kbd>
+        </p>
+
+        <div id="status">m1=0 | servo=90</div>
+    </div>
+
+    <div id="gamepad-status" style="margin-top: 20px; color: #888; font-weight: bold;">Waiting for controller... Press
+        any button</div>
+
+    <div class="toggle-container">
+        <span>Invert L/R:</span>
+        <label class="toggle-switch">
+            <input type="checkbox" id="invertSteering">
+            <span class="slider"></span>
+        </label>
+    </div>
+
+    <script>
+        // Configuration
+        const IP_INPUT_ID = 'ipAddress';
+        const SEND_INTERVAL_MS = 100;
+        const DEADZONE = 0.1;
+
+        // Servo angles
+        const SERVO_CENTER = 90;
+        const SERVO_LEFT = 0;
+        const SERVO_RIGHT = 180;
+        const SERVO_HALF_LEFT = 45;   // halfway left
+        const SERVO_HALF_RIGHT = 135; // halfway right
+
+        let lastSentTime = 0;
+        let gamepadIndex = null;
+        let animationFrameId = null;
+
+        // Track pressed keys for diagonal combos
+        let keysDown = new Set();
+
+        // Speed slider
+        const speedSlider = document.getElementById('speedSlider');
+        const speedValue = document.getElementById('speedValue');
+        speedSlider.addEventListener('input', () => {
+            speedValue.textContent = speedSlider.value;
+        });
+
+        function getSpeed() {
+            return parseInt(speedSlider.value);
+        }
+
+        // Request queue system
+        let requestQueue = [];
+        let isSending = false;
+
+        function sendRequest(m1, servo) {
+            const ip = document.getElementById(IP_INPUT_ID).value;
+            m1 = Math.round(m1);
+            servo = Math.round(servo);
+
+            // Clamp servo 0-180
+            servo = Math.max(0, Math.min(180, servo));
+
+            const url = `http://${ip}/drive?m1=${m1}&servo=${servo}`;
+
+            // Update status display
+            document.getElementById('status').textContent = `m1=${m1} | servo=${servo}`;
+
+            requestQueue.push(url);
+            processQueue();
+        }
+
+        function processQueue() {
+            if (isSending || requestQueue.length === 0) return;
+
+            isSending = true;
+            const url = requestQueue.shift();
+
+            fetch(url, { mode: 'no-cors' })
+                .then(() => {
+                    isSending = false;
+                    if (requestQueue.length > 1) {
+                        requestQueue = [requestQueue[requestQueue.length - 1]];
+                    }
+                    processQueue();
+                })
+                .catch(err => {
+                    console.error("Connection error");
+                    isSending = false;
+                    processQueue();
+                });
+        }
+
+        // Direction commands:
+        // Z  = forward,  center servo
+        // S  = backward, center servo
+        // Q  = stopped,  full left
+        // D  = stopped,  full right
+        // AZ = forward,  half left  (diagonal forward-left)
+        // EZ = forward,  half right (diagonal forward-right)
+        // AS = backward, half left  (diagonal backward-left)
+        // ES = backward, half right (diagonal backward-right)
+        // STOP = stop, center
+        function sendCommand(dir) {
+            const speed = getSpeed();
+            let m1 = 0;
+            let servo = SERVO_CENTER;
+
+            switch (dir) {
+                case 'Z': m1 = speed; servo = SERVO_CENTER; break;
+                case 'S': m1 = -speed; servo = SERVO_CENTER; break;
+                case 'Q': m1 = 0; servo = SERVO_LEFT; break;
+                case 'D': m1 = 0; servo = SERVO_RIGHT; break;
+                case 'AZ': m1 = speed; servo = SERVO_HALF_LEFT; break; // forward-left
+                case 'EZ': m1 = speed; servo = SERVO_HALF_RIGHT; break; // forward-right
+                case 'AS': m1 = -speed; servo = SERVO_HALF_LEFT; break; // backward-left
+                case 'ES': m1 = -speed; servo = SERVO_HALF_RIGHT; break; // backward-right
+                case 'STOP': m1 = 0; servo = SERVO_CENTER; break;
+            }
+            sendRequest(m1, servo);
+            console.log(`Command ${dir}: m1=${m1}, servo=${servo}`);
+        }
+
+        // --- Keyboard Logic with diagonal support ---
+
+        function updateFromKeys() {
+            const hasZ = keysDown.has('Z');
+            const hasS = keysDown.has('S');
+            const hasQ = keysDown.has('Q');
+            const hasD = keysDown.has('D');
+
+            // Determine direction
+            if (hasZ && hasQ) {
+                sendCommand('AZ');  // forward-left
+            } else if (hasZ && hasD) {
+                sendCommand('EZ');  // forward-right
+            } else if (hasS && hasQ) {
+                sendCommand('AS');  // backward-left
+            } else if (hasS && hasD) {
+                sendCommand('ES');  // backward-right
+            } else if (hasZ) {
+                sendCommand('Z');   // forward
+            } else if (hasS) {
+                sendCommand('S');   // backward
+            } else if (hasQ) {
+                sendCommand('Q');   // turn left (stationary)
+            } else if (hasD) {
+                sendCommand('D');   // turn right (stationary)
+            }
+        }
+
+        document.addEventListener('keydown', (event) => {
+            const key = event.key.toUpperCase();
+            if (['Z', 'Q', 'S', 'D'].includes(key)) {
+                if (!keysDown.has(key)) {
+                    keysDown.add(key);
+                    updateFromKeys();
+                }
+            } else if (key === 'E' || event.code === 'Space') {
+                keysDown.clear();
+                sendCommand('STOP');
+            }
+        });
+
+        document.addEventListener('keyup', (event) => {
+            const key = event.key.toUpperCase();
+            if (['Z', 'Q', 'S', 'D'].includes(key)) {
+                keysDown.delete(key);
+                if (keysDown.size > 0) {
+                    updateFromKeys();
+                } else {
+                    sendCommand('STOP');
+                }
+            }
+        });
+
+        // --- Gamepad Logic ---
+
+        window.addEventListener("gamepadconnected", (e) => {
+            gamepadIndex = e.gamepad.index;
+            document.getElementById('gamepad-status').innerText = `Controller Connected: ${e.gamepad.id}`;
+            document.getElementById('gamepad-status').style.color = '#00ff00';
+            if (!animationFrameId) {
+                gamepadLoop();
+            }
+        });
+
+        window.addEventListener("gamepaddisconnected", (e) => {
+            if (gamepadIndex === e.gamepad.index) {
+                gamepadIndex = null;
+                document.getElementById('gamepad-status').innerText = "Controller Disconnected";
+                document.getElementById('gamepad-status').style.color = '#ff0000';
+            }
+        });
+
+        function gamepadLoop() {
+            if (gamepadIndex !== null) {
+                const gp = navigator.getGamepads()[gamepadIndex];
+                if (gp) {
+                    const now = Date.now();
+                    if (now - lastSentTime > SEND_INTERVAL_MS) {
+                        handleGamepadInput(gp);
+                        lastSentTime = now;
+                    }
+                }
+            }
+            animationFrameId = requestAnimationFrame(gamepadLoop);
+        }
+
+        function handleGamepadInput(gp) {
+            // Button 1 (B) = STOP
+            if (gp.buttons[1] && gp.buttons[1].pressed) {
+                sendRequest(0, SERVO_CENTER);
+                return;
+            }
+
+            // Speed boost with right trigger (button 7)
+            let currentMaxSpeed = getSpeed();
+            if (gp.buttons[7] && gp.buttons[7].pressed) {
+                currentMaxSpeed = 255;
+            }
+
+            // --- Input ---
+            // Axis 1: Left Stick Y (-1 up, 1 down) -> invert for forward
+            // Axis 0: Left Stick X (-1 left, 1 right)
+            let throttle = -gp.axes[1];
+            let turn = gp.axes[0];
+
+            // Check invert toggle
+            const invertSteering = document.getElementById('invertSteering').checked;
+            if (invertSteering) turn = -turn;
+
+            // D-Pad
+            if (gp.buttons[12] && gp.buttons[12].pressed) throttle += 1;
+            if (gp.buttons[13] && gp.buttons[13].pressed) throttle -= 1;
+            if (gp.buttons[14] && gp.buttons[14].pressed) turn -= 1; // Left
+            if (gp.buttons[15] && gp.buttons[15].pressed) turn += 1; // Right
+
+            // Clamp
+            throttle = Math.max(-1, Math.min(1, throttle));
+            turn = Math.max(-1, Math.min(1, turn));
+
+            // Deadzone
+            if (Math.abs(throttle) < DEADZONE) throttle = 0;
+            if (Math.abs(turn) < DEADZONE) turn = 0;
+
+            // --- Map to m1 (motor speed) and servo (steering angle) ---
+            // Motor: throttle * speed (positive = forward, negative = backward)
+            let m1 = throttle * currentMaxSpeed;
+            m1 = Math.max(-currentMaxSpeed, Math.min(currentMaxSpeed, m1));
+
+            // Servo: map turn from -1..1 to 0..180 (center=90, left=0, right=180)
+            let servo = SERVO_CENTER + (turn * 90);
+            servo = Math.max(0, Math.min(180, servo));
+
+            sendRequest(m1, servo);
+        }
+    </script>
+</body>
+
+</html>

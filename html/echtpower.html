@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 Robot Remote (ZQSD)</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            text-align: center;
+            background: #1a1a1a;
+            color: #eee;
+        }
+
+        .container {
+            margin-top: 50px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 100px 100px 100px;
+            grid-gap: 15px;
+            justify-content: center;
+            margin: 20px auto;
+        }
+
+        button {
+            width: 100px;
+            height: 100px;
+            font-size: 24px;
+            font-weight: bold;
+            border-radius: 15px;
+            border: 2px solid #444;
+            background: #333;
+            color: white;
+            cursor: pointer;
+            transition: 0.1s;
+        }
+
+        button:active {
+            background: #00ff00;
+            color: black;
+            transform: scale(0.95);
+        }
+
+        .stop-btn {
+            background: #800000;
+            border-color: #ff0000;
+        }
+
+        input {
+            padding: 10px;
+            border-radius: 5px;
+            border: none;
+            width: 200px;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        kbd {
+            background: #444;
+            padding: 2px 6px;
+            border-radius: 4px;
+            color: #00ff00;
+        }
+
+        .toggle-container {
+            margin-top: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .toggle-switch {
+            position: relative;
+            width: 50px;
+            height: 26px;
+        }
+
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #444;
+            transition: 0.3s;
+            border-radius: 26px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 20px;
+            width: 20px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: 0.3s;
+            border-radius: 50%;
+        }
+
+        input:checked+.slider {
+            background-color: #00ff00;
+        }
+
+        input:checked+.slider:before {
+            transform: translateX(24px);
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <h1>Robot Controller (ZQSD)</h1>
+        <input type="text" id="ipAddress" value="192.168.0.54">
+
+        <div class="grid">
+            <div></div>
+            <button id="btnZ" onclick="sendCommand('Z')">Z</button>
+            <div></div>
+
+            <button id="btnQ" onclick="sendCommand('Q')">Q</button>
+            <button class="stop-btn" onclick="sendCommand('E')">STOP</button>
+            <button id="btnD" onclick="sendCommand('D')">D</button>
+
+            <div></div>
+            <button id="btnS" onclick="sendCommand('S')">S</button>
+            <div></div>
+        </div>
+
+        <p>Drive with <kbd>Z</kbd> <kbd>Q</kbd> <kbd>S</kbd> <kbd>D</kbd> | Stop with <kbd>E</kbd> or <kbd>Space</kbd>
+        </p>
+    </div>
+
+    <div id="gamepad-status" style="margin-top: 20px; color: #888; font-weight: bold;">Waiting for controller... Press
+        any button</div>
+
+    <div class="toggle-container">
+        <span>Invert L/R:</span>
+        <label class="toggle-switch">
+            <input type="checkbox" id="invertSteering">
+            <span class="slider"></span>
+        </label>
+    </div>
+
+    <script>
+        // Configuration
+        const IP_INPUT_ID = 'ipAddress';
+        const SEND_INTERVAL_MS = 100; // Rate limit for gamepad
+        const MAX_SPEED = 255;
+        const DEADZONE = 0.1;
+
+        let lastSentTime = 0;
+        let gamepadIndex = null;
+        let animationFrameId = null;
+
+        // Request queue system - only send next request after previous completes
+        let requestQueue = [];
+        let isSending = false;
+
+        function sendRequest(m1, m2) {
+            const ip = document.getElementById(IP_INPUT_ID).value;
+            // Ensure integers
+            m1 = Math.round(m1);
+            m2 = Math.round(m2);
+
+            const url = `http://${ip}/drive?m1=${m1}&m2=${m2}`;
+
+            // Add to queue
+            requestQueue.push(url);
+            processQueue();
+        }
+
+        function processQueue() {
+            if (isSending || requestQueue.length === 0) return;
+
+            isSending = true;
+            const url = requestQueue.shift();
+
+            fetch(url, { mode: 'no-cors' })
+                .then(() => {
+                    isSending = false;
+                    // Keep only the last element in queue, discard older ones
+                    if (requestQueue.length > 1) {
+                        requestQueue = [requestQueue[requestQueue.length - 1]];
+                    }
+                    processQueue(); // Process next in queue
+                })
+                .catch(err => {
+                    console.error("Connection error");
+                    isSending = false;
+                    processQueue(); // Continue even on error
+                });
+        }
+
+        function sendCommand(dir) {
+            let m1 = 0, m2 = 0;
+            switch (dir) {
+                case 'Z': m1 = MAX_SPEED; m2 = MAX_SPEED; break;
+                case 'S': m1 = -MAX_SPEED; m2 = -MAX_SPEED; break;
+                case 'Q': m1 = -150; m2 = 150; break;
+                case 'D': m1 = 150; m2 = -150; break;
+                case 'E': m1 = 0; m2 = 0; break;
+            }
+            sendRequest(m1, m2);
+            console.log(`Command ${dir} sent`);
+        }
+
+        // --- Gamepad Logic ---
+
+        window.addEventListener("gamepadconnected", (e) => {
+            console.log("Gamepad connected at index %d: %s. %d buttons, %d axes.",
+                e.gamepad.index, e.gamepad.id,
+                e.gamepad.buttons.length, e.gamepad.axes.length);
+
+            gamepadIndex = e.gamepad.index;
+            document.getElementById('gamepad-status').innerText = `Controller Connected: ${e.gamepad.id}`;
+            document.getElementById('gamepad-status').style.color = '#00ff00';
+
+            if (!animationFrameId) {
+                gamepadLoop();
+            }
+        });
+
+        window.addEventListener("gamepaddisconnected", (e) => {
+            console.log("Gamepad disconnected from index %d: %s",
+                e.gamepad.index, e.gamepad.id);
+            if (gamepadIndex === e.gamepad.index) {
+                gamepadIndex = null;
+                document.getElementById('gamepad-status').innerText = "Controller Disconnected";
+                document.getElementById('gamepad-status').style.color = '#ff0000';
+            }
+        });
+
+        function gamepadLoop() {
+            if (gamepadIndex !== null) {
+                const gp = navigator.getGamepads()[gamepadIndex];
+                if (gp) {
+                    const now = Date.now();
+                    if (now - lastSentTime > SEND_INTERVAL_MS) {
+                        handleGamepadInput(gp);
+                        lastSentTime = now;
+                    }
+                }
+            }
+            animationFrameId = requestAnimationFrame(gamepadLoop);
+        }
+
+        function handleGamepadInput(gp) {
+            // Button 1 is usually 'B' on Xbox/Generic pads - STOP
+            if (gp.buttons[1] && gp.buttons[1].pressed) {
+                sendRequest(0, 0);
+                return;
+            }
+
+            // --- Speed Control ---
+            // Button 7 is usually 'ZR' (Right Trigger/Bumper)
+            // Default speed 150, Boost 255
+            let currentMaxSpeed = 210;
+            if (gp.buttons[7] && gp.buttons[7].pressed) {
+                currentMaxSpeed = 255;
+            }
+
+            // --- Input Gathering ---
+
+            // 1. Joystick
+            // Axis 1: Left Stick Y ( -1 is up, 1 is down ) -> Invert for standard forward
+            // Axis 0: Left Stick X ( -1 is left, 1 is right )
+            let throttle = -gp.axes[1];
+            let turn = gp.axes[0];
+
+            // Check invert toggle
+            const invertSteering = document.getElementById('invertSteering').checked;
+            if (invertSteering) turn = -turn;
+
+            // 2. D-Pad (Buttons 12/13/14/15)
+            // Up (12), Down (13), Left (14), Right (15)
+            if (gp.buttons[12] && gp.buttons[12].pressed) throttle += 1;
+            if (gp.buttons[13] && gp.buttons[13].pressed) throttle -= 1;
+            if (gp.buttons[14] && gp.buttons[14].pressed) turn += 1; // Left
+            if (gp.buttons[15] && gp.buttons[15].pressed) turn -= 1; // Right
+
+            // Clamp inputs to -1..1 range (in case both stick and dpad are used)
+            throttle = Math.max(-1, Math.min(1, throttle));
+            turn = Math.max(-1, Math.min(1, turn));
+
+            // Deadzone (only apply if using joystick primarily, but clamping handles D-pad 1.0 values fine)
+            if (Math.abs(throttle) < DEADZONE) throttle = 0;
+            if (Math.abs(turn) < DEADZONE) turn = 0;
+
+            // --- Arcade Drive Mixing ---
+            // m1 = Left Motor, m2 = Right Motor
+            let m1 = (throttle + turn) * currentMaxSpeed;
+            let m2 = (throttle - turn) * currentMaxSpeed;
+
+            // Clamp values
+            m1 = Math.max(-currentMaxSpeed, Math.min(currentMaxSpeed, m1));
+            m2 = Math.max(-currentMaxSpeed, Math.min(currentMaxSpeed, m2));
+
+            sendRequest(m1, m2);
+        }
+
+
+        // Keyboard listener for ZQSD
+        document.addEventListener('keydown', (event) => {
+            const key = event.key.toUpperCase();
+            if (['Z', 'Q', 'S', 'D', 'E'].includes(key)) {
+                sendCommand(key);
+            } else if (event.code === 'Space') {
+                sendCommand('E');
+            }
+        });
+    </script>
+</body>
+
+</html>
