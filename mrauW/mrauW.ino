@@ -4,7 +4,7 @@
 #include <ESPAsyncWebServer.h>
 #include <WebSerial.h>
 
-// Pins for H-Bridge 
+// Pins for H-Bridge
 const int IN1 = 36; 
 const int IN2 = 37; 
 const int IN3 = 38;
@@ -37,34 +37,35 @@ void setup() {
   WiFi.setSleep(false); 
 
   WebSerial.begin(&server);
-  Serial.println(WiFi.localIP());
 
   // SINGLE ROUTE FOR BOTH MOTORS
   server.on("/drive", HTTP_GET, [](AsyncWebServerRequest *request) {
     String response = "Commands Processed: ";
 
     // Handle Motor 1 (Parameter 'm1')
-    if (request->hasParam("m")) {
-      int s1 = constrain(request->getParam("m")->value().toInt(), -255, 255);
+    if (request->hasParam("m1")) {
+      int s1 = constrain(request->getParam("m1")->value().toInt(), -255, 255);
       if (s1 >= 0) {
         ledcWrite(IN1, s1);
         ledcWrite(IN2, 0);
-        ledcWrite(IN3, s1);
-        ledcWrite(IN4, 0);
       } else {
         ledcWrite(IN1, 0);
         ledcWrite(IN2, abs(s1));
-        ledcWrite(IN3, 0);
-        ledcWrite(IN4, abs(s1));
       }
-      response += "M=" + String(s1) + " ";
+      response += "M1=" + String(s1) + " ";
     }
 
-    // Handle Motor 2 (Parameter 'servo')
-    if (request->hasParam("servo")) {
-    //  int s2 = constrain(request->getParam("servo")->value().toInt(), -255, 255);
-    //... do servo magic
-     // response += "servo=" + String(s2);
+    // Handle Motor 2 (Parameter 'm2')
+    if (request->hasParam("m2")) {
+      int s2 = constrain(request->getParam("m2")->value().toInt(), -255, 255);
+      if (s2 >= 0) {
+        ledcWrite(IN3, s2);
+        ledcWrite(IN4, 0);
+      } else {
+        ledcWrite(IN3, 0);
+        ledcWrite(IN4, abs(s2));
+      }
+      response += "M2=" + String(s2);
     }
 
     WebSerial.println(response);
