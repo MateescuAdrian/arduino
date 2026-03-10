@@ -143,6 +143,38 @@
             color: #888;
             font-size: 14px;
         }
+
+        .servo-status {
+            margin: 20px auto;
+            padding: 15px;
+            background: #222;
+            border: 1px solid #444;
+            border-radius: 12px;
+            max-width: 320px;
+            font-family: monospace;
+        }
+
+        .servo-status h3 {
+            margin: 0 0 10px 0;
+            color: #00ff00;
+            font-size: 14px;
+        }
+
+        .servo-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 4px 0;
+            font-size: 13px;
+        }
+
+        .servo-row .label {
+            color: #888;
+        }
+
+        .servo-row .value {
+            color: #fff;
+            font-weight: bold;
+        }
     </style>
 </head>
 
@@ -180,6 +212,12 @@
         </p>
 
         <div id="status">m1=0 | servo=90</div>
+
+        <div class="servo-status">
+            <h3>🔄 Servo Angle</h3>
+            <div class="servo-row"><span class="label">Angle:</span><span class="value" id="servoAngle">0.0°</span></div>
+            <button onclick="resetAngle()" style="margin-top:10px;width:auto;height:auto;padding:8px 16px;font-size:13px;background:#800000;border-color:#ff0000;">Reset Angle</button>
+        </div>
     </div>
 
     <div id="gamepad-status" style="margin-top: 20px; color: #888; font-weight: bold;">Waiting for controller... Press
@@ -267,30 +305,30 @@
         }
 
         // Direction commands:
-        // Z  = forward,  center servo
-        // S  = backward, center servo
-        // Q  = stopped,  full left
-        // D  = stopped,  full right
+        // Z  = forward,  center servo (straight ahead)
+        // S  = backward, center servo (straight back)
+        // Q  = forward,  full left steering
+        // D  = forward,  full right steering
         // AZ = forward,  half left  (diagonal forward-left)
         // EZ = forward,  half right (diagonal forward-right)
         // AS = backward, half left  (diagonal backward-left)
         // ES = backward, half right (diagonal backward-right)
-        // STOP = stop, center
+        // STOP = stop motors, center servo
         function sendCommand(dir) {
             const speed = getSpeed();
             let m1 = 0;
             let servo = SERVO_CENTER;
 
             switch (dir) {
-                case 'Z': m1 = speed; servo = SERVO_CENTER; break;
-                case 'S': m1 = -speed; servo = SERVO_CENTER; break;
-                case 'Q': m1 = 0; servo = SERVO_LEFT; break;
-                case 'D': m1 = 0; servo = SERVO_RIGHT; break;
-                case 'AZ': m1 = speed; servo = SERVO_HALF_LEFT; break; // forward-left
-                case 'EZ': m1 = speed; servo = SERVO_HALF_RIGHT; break; // forward-right
-                case 'AS': m1 = -speed; servo = SERVO_HALF_LEFT; break; // backward-left
-                case 'ES': m1 = -speed; servo = SERVO_HALF_RIGHT; break; // backward-right
-                case 'STOP': m1 = 0; servo = SERVO_CENTER; break;
+                case 'Z': m1 = speed; servo = SERVO_CENTER; break;        // ▲ forward straight
+                case 'S': m1 = -speed; servo = SERVO_CENTER; break;       // ▼ backward straight
+                case 'Q': m1 = speed; servo = SERVO_LEFT; break;          // ◀ forward + full left
+                case 'D': m1 = speed; servo = SERVO_RIGHT; break;         // ▶ forward + full right
+                case 'AZ': m1 = speed; servo = SERVO_HALF_LEFT; break;    // ↖ forward + half left
+                case 'EZ': m1 = speed; servo = SERVO_HALF_RIGHT; break;   // ↗ forward + half right
+                case 'AS': m1 = -speed; servo = SERVO_HALF_LEFT; break;   // ↙ backward + half left
+                case 'ES': m1 = -speed; servo = SERVO_HALF_RIGHT; break;  // ↘ backward + half right
+                case 'STOP': m1 = 0; servo = SERVO_CENTER; break;         // ■ stop
             }
             sendRequest(m1, servo);
             console.log(`Command ${dir}: m1=${m1}, servo=${servo}`);
@@ -304,7 +342,7 @@
             const hasQ = keysDown.has('Q');
             const hasD = keysDown.has('D');
 
-            // Determine direction
+            // Determine direction from key combos
             if (hasZ && hasQ) {
                 sendCommand('AZ');  // forward-left
             } else if (hasZ && hasD) {
@@ -318,9 +356,27 @@
             } else if (hasS) {
                 sendCommand('S');   // backward
             } else if (hasQ) {
-                sendCommand('Q');   // turn left (stationary)
+                sendCommand('Q');   // turn left
             } else if (hasD) {
-                sendCommand('D');   // turn right (stationary)
+                sendCommand('D');   // turn right
+            }
+        }
+
+        let keyRepeatInterval = null;
+
+        function startKeyRepeat() {
+            stopKeyRepeat();
+            keyRepeatInterval = setInterval(() => {
+                if (keysDown.size > 0) {
+                    updateFromKeys();
+                }
+            }, 150); // resend every 150ms to stay within ESP32's 200ms timeout
+        }
+
+        function stopKeyRepeat() {
+            if (keyRepeatInterval) {
+                clearInterval(keyRepeatInterval);
+                keyRepeatInterval = null;
             }
         }
 
@@ -330,9 +386,11 @@
                 if (!keysDown.has(key)) {
                     keysDown.add(key);
                     updateFromKeys();
+                    startKeyRepeat();
                 }
             } else if (key === 'E' || event.code === 'Space') {
                 keysDown.clear();
+                stopKeyRepeat();
                 sendCommand('STOP');
             }
         });
@@ -344,6 +402,7 @@
                 if (keysDown.size > 0) {
                     updateFromKeys();
                 } else {
+                    stopKeyRepeat();
                     sendCommand('STOP');
                 }
             }
@@ -430,6 +489,28 @@
 
             sendRequest(m1, servo);
         }
+
+        function resetAngle() {
+            const ip = document.getElementById(IP_INPUT_ID).value;
+            fetch(`http://${ip}/servo_status?reset=1`)
+                .then(() => document.getElementById('servoAngle').textContent = '0.0°')
+                .catch(err => console.error('Reset error:', err));
+        }
+
+        // --- Servo Status Polling ---
+        function pollServoStatus() {
+            const ip = document.getElementById(IP_INPUT_ID).value;
+            const url = `http://${ip}/servo_status`;
+            console.log('Polling servo status:', url);
+            fetch(url)
+                .then(r => r.json())
+                .then(data => {
+                    document.getElementById('servoAngle').textContent = data.angle.toFixed(1) + '°';
+                })
+                .catch(err => console.error('Servo status error:', err));
+        }
+
+        setInterval(pollServoStatus, 500);
     </script>
 </body>
 
