@@ -4,6 +4,9 @@
 #include <WebSerial.h>
 #include <WiFi.h>
 
+HardwareSerial
+    ArmSerial(1); // Serial1 for Adeept Arm (ESP32-S2 only has UART0 + UART1)
+
 // Pins for H-Bridge
 const int IN1 = 36;
 const int IN2 = 37;
@@ -60,6 +63,10 @@ void setup() {
   // Allow cross-origin requests so the HTML page can read responses
   DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
 
+  // Initialize UART for Adeept Arm (RX=GP3, TX=GP2)
+  // Using the dedicated UART1 pins on the ESP32-S2 Pico
+  ArmSerial.begin(9600, SERIAL_8N1, 3, 2);
+
   WebSerial.begin(&server);
   Serial.println(WiFi.localIP());
 
@@ -104,6 +111,15 @@ void setup() {
       response += "Servo=" + String(servoSpeed);
     }
 
+    // 3. Robotic Arm Control via UART
+    if (request->hasParam("arm_s") && request->hasParam("arm_a")) {
+      int arm_s = request->getParam("arm_s")->value().toInt();
+      int arm_a =
+          constrain(request->getParam("arm_a")->value().toInt(), 0, 180);
+      ArmSerial.printf("%d:%d\n", arm_s, arm_a);
+      response += " ArmS" + String(arm_s) + "=" + String(arm_a);
+    }
+
     WebSerial.println(response);
     request->send(200, "text/plain", response);
   });
@@ -124,28 +140,40 @@ void setup() {
 
   server.begin();
   Serial.println("\nSUCCESS: All-in-One Route Live!");
-}
 
-void loop() {
-  unsigned long now = millis();
-  unsigned long elapsed = now - lastServoUpdate;
+  unsigned long lastHeartbeat = 0;
 
-  // Safety cap: ignore spikes from async race conditions
-  if (elapsed > 100)
-    elapsed = 100;
+  void loop() {
+    unsigned long now = millis();
+    unsigned long elapsed = now - lastServoUpdate;
 
-  // Auto-stop servo if no command received recently
-  if (currentServoSpeed != 90 && (now - lastCommandTime) > SERVO_TIMEOUT_MS) {
-    currentServoSpeed = 90;
-    int stopDuty = map(90, 0, 180, 26, 123);
-    ledcWrite(SERVO_PIN, stopDuty);
+    // Safety cap: ignore spikes from async race conditions
+    if (elapsed > 100)
+      elapsed = 100;
+
+    // Auto-stop servo if no command received recently
+    if (currentServoSpeed != 90 && (now - lastCommandTime) > SERVO_TIMEOUT_MS) {
+      currentServoSpeed = 90;
+      int stopDuty = map(90, 0, 180, 26, 123);
+      ledcWrite(SERVO_PIN, stopDuty);
+    }
+
+    if (elapsed > 0 && currentServoSpeed != 90) {
+      float speedFactor = (currentServoSpeed - 90) / 90.0;
+      totalAngle += speedFactor * DEGREES_PER_MS * elapsed;
+    }
+
+    lastServoUpdate = now;
+
+    // DEBUG: Send heartbeat to arm every 5 seconds
+    if (now - lastHeartbeat > 5000) {
+
+      ArmSerial.println(
+          "9:9"); // harmless command (servo 0 doesn't exist, will be ignored)
+
+      lastHeartbeat = now;
+      Serial.println("ARM TEST: sent 0:0 on UART1 (GP2)");
+    }
+
+    yield();
   }
-
-  if (elapsed > 0 && currentServoSpeed != 90) {
-    float speedFactor = (currentServoSpeed - 90) / 90.0;
-    totalAngle += speedFactor * DEGREES_PER_MS * elapsed;
-  }
-
-  lastServoUpdate = now;
-  yield();
-}

@@ -280,6 +280,36 @@
         </p>
 
         <div id="status">m1=0 | servo=90</div>
+
+        <!-- Adeept Arm GUI -->
+        <div class="arm-control" style="margin-top:20px; text-align:left; background:#111; padding:15px; border-radius:12px; border:1px solid #444; width:100%; max-width:400px; display:inline-block;">
+            <h3 style="margin-top:0; color:#ff9900; text-align:center; font-size:16px;">🦾 Adeept Arm Control</h3>
+            <div style="display:flex; justify-content:space-between; margin-bottom:10px; align-items:center;">
+                <label style="color:#aaa; font-size:13px; width:110px;">S1 (Base)</label>
+                <input type="range" min="0" max="180" value="90" oninput="sendArmCmd(1, this.value)" style="flex:1;">
+                <span id="arm-s1-val" style="width:30px; text-align:right; font-family:monospace; color:#fff;">90</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; margin-bottom:10px; align-items:center;">
+                <label style="color:#aaa; font-size:13px; width:110px;">S2 (Shoulder)</label>
+                <input type="range" min="0" max="180" value="90" oninput="sendArmCmd(2, this.value)" style="flex:1;">
+                <span id="arm-s2-val" style="width:30px; text-align:right; font-family:monospace; color:#fff;">90</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; margin-bottom:10px; align-items:center;">
+                <label style="color:#aaa; font-size:13px; width:110px;">S3 (Elbow)</label>
+                <input type="range" min="0" max="180" value="90" oninput="sendArmCmd(3, this.value)" style="flex:1;">
+                <span id="arm-s3-val" style="width:30px; text-align:right; font-family:monospace; color:#fff;">90</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; margin-bottom:10px; align-items:center;">
+                <label style="color:#aaa; font-size:13px; width:110px;">S4 (Rotate)</label>
+                <input type="range" min="0" max="180" value="90" oninput="sendArmCmd(4, this.value)" style="flex:1;">
+                <span id="arm-s4-val" style="width:30px; text-align:right; font-family:monospace; color:#fff;">90</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; margin-bottom:5px; align-items:center;">
+                <label style="color:#aaa; font-size:13px; width:110px;">S5 (Gripper)</label>
+                <input type="range" min="0" max="180" value="90" oninput="sendArmCmd(5, this.value)" style="flex:1;">
+                <span id="arm-s5-val" style="width:30px; text-align:right; font-family:monospace; color:#fff;">90</span>
+            </div>
+        </div>
     </div>
 
     <div id="gamepad-status" style="margin-top: 20px; color: #888; font-weight: bold;">Waiting for controller... Press
@@ -394,6 +424,18 @@
                     isSending = false;
                     processQueue();
                 });
+        }
+
+        let armTimeouts = {};
+        function sendArmCmd(servoNr, degrees) {
+            document.getElementById(`arm-s${servoNr}-val`).textContent = degrees;
+            if(armTimeouts[servoNr]) clearTimeout(armTimeouts[servoNr]);
+            armTimeouts[servoNr] = setTimeout(() => {
+                const ip = document.getElementById(IP_INPUT_ID).value;
+                const url = `http://${ip}/drive?arm_s=${servoNr}&arm_a=${degrees}`;
+                requestQueue.push(url);
+                processQueue();
+            }, 50); // Debounce rapid slider events
         }
 
         // Direction commands:
