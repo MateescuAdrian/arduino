@@ -250,7 +250,7 @@
 
     <div class="container">
         <h1>Robot Controller (ZQSD)</h1>
-        <input type="text" id="ipAddress" value="192.168.0.133">
+        <input type="text" id="ipAddress" value="10.167.48.188">
 
         <div class="speed-control">
             <span>Speed:</span>
@@ -282,7 +282,8 @@
         <div id="status">m1=0 | servo=90</div>
 
         <!-- Adeept Arm GUI -->
-        <div class="arm-control" style="margin-top:20px; text-align:left; background:#111; padding:15px; border-radius:12px; border:1px solid #444; width:100%; max-width:400px; display:inline-block;">
+        <div class="arm-control"
+            style="margin-top:20px; text-align:left; background:#111; padding:15px; border-radius:12px; border:1px solid #444; width:100%; max-width:400px; display:inline-block;">
             <h3 style="margin-top:0; color:#ff9900; text-align:center; font-size:16px;">🦾 Adeept Arm Control</h3>
             <div style="display:flex; justify-content:space-between; margin-bottom:10px; align-items:center;">
                 <label style="color:#aaa; font-size:13px; width:110px;">S1 (Base)</label>
@@ -328,15 +329,36 @@
         <h3>🎮 Steering Wheel / Pedal Config</h3>
         <div class="config-row">
             <label>Wheel Axis:</label>
-            <select id="wheelAxis"><option value="0" selected>Axis 0</option><option value="1">Axis 1</option><option value="2">Axis 2</option><option value="3">Axis 3</option><option value="4">Axis 4</option><option value="5">Axis 5</option></select>
+            <select id="wheelAxis">
+                <option value="0" selected>Axis 0</option>
+                <option value="1">Axis 1</option>
+                <option value="2">Axis 2</option>
+                <option value="3">Axis 3</option>
+                <option value="4">Axis 4</option>
+                <option value="5">Axis 5</option>
+            </select>
         </div>
         <div class="config-row">
             <label>Gas Pedal Axis:</label>
-            <select id="gasAxis"><option value="0">Axis 0</option><option value="1" selected>Axis 1</option><option value="2">Axis 2</option><option value="3">Axis 3</option><option value="4">Axis 4</option><option value="5">Axis 5</option></select>
+            <select id="gasAxis">
+                <option value="0">Axis 0</option>
+                <option value="1" selected>Axis 1</option>
+                <option value="2">Axis 2</option>
+                <option value="3">Axis 3</option>
+                <option value="4">Axis 4</option>
+                <option value="5">Axis 5</option>
+            </select>
         </div>
         <div class="config-row">
             <label>Brake Pedal Axis:</label>
-            <select id="brakeAxis"><option value="0">Axis 0</option><option value="1">Axis 1</option><option value="2" selected>Axis 2</option><option value="3">Axis 3</option><option value="4">Axis 4</option><option value="5">Axis 5</option></select>
+            <select id="brakeAxis">
+                <option value="0">Axis 0</option>
+                <option value="1">Axis 1</option>
+                <option value="2" selected>Axis 2</option>
+                <option value="3">Axis 3</option>
+                <option value="4">Axis 4</option>
+                <option value="5">Axis 5</option>
+            </select>
         </div>
         <div class="config-row">
             <label>Pedal Mode:</label>
@@ -429,7 +451,7 @@
         let armTimeouts = {};
         function sendArmCmd(servoNr, degrees) {
             document.getElementById(`arm-s${servoNr}-val`).textContent = degrees;
-            if(armTimeouts[servoNr]) clearTimeout(armTimeouts[servoNr]);
+            if (armTimeouts[servoNr]) clearTimeout(armTimeouts[servoNr]);
             armTimeouts[servoNr] = setTimeout(() => {
                 const ip = document.getElementById(IP_INPUT_ID).value;
                 const url = `http://${ip}/drive?arm_s=${servoNr}&arm_a=${degrees}`;

@@ -14,11 +14,14 @@ const int IN3 = 38;
 const int IN4 = 39;
 
 // Servo pin - Use GP17 (Physical Pin 12)
-const int SERVO_PIN = 17;
+const int SERVO_PIN = 40;
 
 // PWM Settings
 const int freq = 5000;
 const int res = 8;
+
+// const char *ssid = "Machuda";
+// const char *password = "Deleanu41";
 
 const char *ssid = "DATABURGOS";
 const char *password = "257Denierz";
@@ -65,7 +68,6 @@ void setup() {
 
   // Initialize UART for Adeept Arm (RX=GP3, TX=GP2)
   // Using the dedicated UART1 pins on the ESP32-S2 Pico
-  ArmSerial.begin(9600, SERIAL_8N1, 3, 2);
 
   WebSerial.begin(&server);
   Serial.println(WiFi.localIP());
@@ -141,39 +143,46 @@ void setup() {
   server.begin();
   Serial.println("\nSUCCESS: All-in-One Route Live!");
 
-  unsigned long lastHeartbeat = 0;
+  delay(5000);
+  ArmSerial.begin(9600, SERIAL_8N1, 3, 2);
 
-  void loop() {
-    unsigned long now = millis();
-    unsigned long elapsed = now - lastServoUpdate;
+} // end of setup()
 
-    // Safety cap: ignore spikes from async race conditions
-    if (elapsed > 100)
-      elapsed = 100;
+unsigned long lastHeartbeat = 0;
 
-    // Auto-stop servo if no command received recently
-    if (currentServoSpeed != 90 && (now - lastCommandTime) > SERVO_TIMEOUT_MS) {
-      currentServoSpeed = 90;
-      int stopDuty = map(90, 0, 180, 26, 123);
-      ledcWrite(SERVO_PIN, stopDuty);
-    }
+void loop() {
+  unsigned long now = millis();
+  unsigned long elapsed = now - lastServoUpdate;
 
-    if (elapsed > 0 && currentServoSpeed != 90) {
-      float speedFactor = (currentServoSpeed - 90) / 90.0;
-      totalAngle += speedFactor * DEGREES_PER_MS * elapsed;
-    }
+  // Safety cap: ignore spikes from async race conditions
+  if (elapsed > 100)
+    elapsed = 100;
 
-    lastServoUpdate = now;
-
-    // DEBUG: Send heartbeat to arm every 5 seconds
-    if (now - lastHeartbeat > 5000) {
-
-      ArmSerial.println(
-          "9:9"); // harmless command (servo 0 doesn't exist, will be ignored)
-
-      lastHeartbeat = now;
-      Serial.println("ARM TEST: sent 0:0 on UART1 (GP2)");
-    }
-
-    yield();
+  // Auto-stop servo if no command received recently
+  if (currentServoSpeed != 90 && (now - lastCommandTime) > SERVO_TIMEOUT_MS) {
+    currentServoSpeed = 90;
+    int stopDuty = map(90, 0, 180, 26, 123);
+    ledcWrite(SERVO_PIN, stopDuty);
   }
+
+  if (elapsed > 0 && currentServoSpeed != 90) {
+    float speedFactor = (currentServoSpeed - 90) / 90.0;
+    totalAngle += speedFactor * DEGREES_PER_MS * elapsed;
+  }
+
+  lastServoUpdate = now;
+
+  // DEBUG: Send heartbeat to arm every 5 seconds
+  if (now - lastHeartbeat > 5000) {
+
+    ArmSerial.println(
+        "9:9"); // harmless command (servo 0 doesn't exist, will be ignored)
+
+    ArmSerial.println(WiFi.localIP());
+
+    lastHeartbeat = now;
+    Serial.println("ARM TEST: sent ip address on UART1 (GP2)");
+  }
+
+  yield();
+}

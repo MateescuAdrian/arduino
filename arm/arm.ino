@@ -31,8 +31,7 @@ String lastRx = "(none)"; // Debug: last raw data received
 int rxCount = 0;          // Debug: total messages received
 
 void setup() {
-  // 1. Initialize Serial - receives from Bluetooth/WiFi header via DPDT switch
-  Serial.begin(9600);
+
   // 2. Initialize the OLED Display
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
     for (;;)
@@ -51,6 +50,14 @@ void setup() {
 
   // Draw initial OLED Screen
   drawScreen();
+  display.print("serial started");
+  display.display();
+  delay(2000);
+  // 1. Initialize Serial - receives from Bluetooth/WiFi header via DPDT switch
+  Serial.begin(9600);
+  display.print("serial started");
+  drawScreen();
+  display.display();
 }
 
 void loop() {
