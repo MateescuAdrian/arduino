@@ -40,9 +40,16 @@ const unsigned long SERVO_TIMEOUT_MS =
     200; // auto-stop if no command in this time
 
 void setup() {
+  pinMode(2, OUTPUT);
+  digitalWrite(2, HIGH);
+  ArmSerial.begin(9600, SERIAL_8N1, 3, 2);
+
   Serial.begin(115200);
   delay(3000);
-
+  pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+  pinMode(IN3, OUTPUT);
+  pinMode(IN4, OUTPUT);
   // Configure Motor Pins for PWM
   ledcAttach(IN1, freq, res);
   ledcAttach(IN2, freq, res);
@@ -142,9 +149,6 @@ void setup() {
 
   server.begin();
   Serial.println("\nSUCCESS: All-in-One Route Live!");
-
-  delay(5000);
-  ArmSerial.begin(9600, SERIAL_8N1, 3, 2);
 
 } // end of setup()
 
