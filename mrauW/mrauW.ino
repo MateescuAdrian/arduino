@@ -10,8 +10,8 @@ HardwareSerial
 // Pins for H-Bridge
 const int IN1 = 36;
 const int IN2 = 37;
-const int IN3 = 38;
-const int IN4 = 39;
+const int IN3 = 39;
+const int IN4 = 38;
 
 // Servo pin - Use GP17 (Physical Pin 12)
 const int SERVO_PIN = 40;
