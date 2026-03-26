@@ -39,6 +39,17 @@ unsigned long lastCommandTime = 0; // when the last /drive command arrived
 const unsigned long SERVO_TIMEOUT_MS =
     200; // auto-stop if no command in this time
 
+// Helper function to drive a motor with speed -255 to 255
+void setMotor(int p1, int p2, int speed) {
+  if (speed >= 0) {
+    ledcWrite(p1, speed);
+    ledcWrite(p2, 0);
+  } else {
+    ledcWrite(p1, 0);
+    ledcWrite(p2, abs(speed));
+  }
+}
+
 void setup() {
   pinMode(2, OUTPUT);
   digitalWrite(2, HIGH);
@@ -82,42 +93,61 @@ void setup() {
   // UPDATED ROUTE: /drive?m1=XX&servo=YY
   server.on("/drive", HTTP_GET, [](AsyncWebServerRequest *request) {
     String response = "Commands Processed: ";
-
+    int baseSpeed = 0;
+    int angle = 90;
     // 1. Single Parameter 'm1' controls BOTH motors
-    if (request->hasParam("m1")) {
-      int speedValue =
-          constrain(request->getParam("m1")->value().toInt(), -255, 255);
+    if ((request->hasParam("m1")) || (request->hasParam("servo"))) {
+      if (request->hasParam("m1"))
+        baseSpeed =
+            constrain(request->getParam("m1")->value().toInt(), -255, 255);
+      if (request->hasParam("servo"))
+        angle = constrain(request->getParam("servo")->value().toInt(), 0, 180);
+      // --- DIFFERENTIAL STEERING CALCULATION ---
+      // If angle < 90, we turn LEFT. Right motor stays full, Left motor slows
+      // down. If angle > 90, we turn RIGHT. Left motor stays full, Right motor
+      // slows down.
 
-      if (speedValue >= 0) {
-        // Forward: Both motors use high signal on IN1 and IN3
-        ledcWrite(IN1, speedValue);
-        ledcWrite(IN2, 0);
-        ledcWrite(IN3, speedValue);
-        ledcWrite(IN4, 0);
-      } else {
-        // Backward: Both motors use high signal on IN2 and IN4
-        ledcWrite(IN1, 0);
-        ledcWrite(IN2, abs(speedValue));
-        ledcWrite(IN3, 0);
-        ledcWrite(IN4, abs(speedValue));
+      float leftFactor = 1.0;
+      float rightFactor = 1.0;
+      if (angle < 85) { // Turning Left
+        // Maps angle 0-85 to a multiplier of 0.0 to 1.0
+        leftFactor = angle / 85.0;
+      } else if (angle > 95) { // Turning Right
+        // Maps angle 180-95 to a multiplier of 0.0 to 1.0
+        rightFactor = (180.0 - angle) / 85.0;
       }
-      response += "Motors=" + String(speedValue) + " ";
-    }
 
-    // 2. Continuous rotation servo: 0=full CW, 90=stop, 180=full CCW
-    if (request->hasParam("servo")) {
-      int servoSpeed =
-          constrain(request->getParam("servo")->value().toInt(), 0, 180);
+      int speedL = baseSpeed;
+      int speedR = baseSpeed;
+      if (baseSpeed != 0) {
+        int absSpeed = abs(baseSpeed);
+        int sign = (baseSpeed > 0) ? 1 : -1;
+        int delta = max(0, absSpeed - 220);
+        int baseFloor = min(absSpeed, 220);
+        
+        if (angle < 85) {
+          speedL = sign * (baseFloor + (int)(delta * leftFactor));
+        } else if (angle > 95) {
+          speedR = sign * (baseFloor + (int)(delta * rightFactor));
+        }
+      }
+
+      setMotor(IN1, IN2, speedL);
+      setMotor(IN3, IN4, speedR);
+
+      response += "Motors= L " + String(speedL) + " , R" + String(speedR);
+
+      // 2. Continuous rotation servo: 0=full CW, 90=stop, 180=full CCW
 
       // Map 0-180 to PWM duty (26=1ms full CW, 74=1.5ms stop, 123=2ms full CCW)
-      int duty = map(servoSpeed, 0, 180, 51, 102);
+      int duty = map(angle, 0, 180, 51, 102);
       ledcWrite(SERVO_PIN, duty);
 
       // Update tracking state
-      currentServoSpeed = servoSpeed;
+      currentServoSpeed = angle;
       lastCommandTime = millis();
 
-      response += "Servo=" + String(servoSpeed);
+      response += "Servo=" + String(angle);
     }
 
     // 3. Robotic Arm Control via UART
