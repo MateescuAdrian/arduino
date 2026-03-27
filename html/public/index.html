@@ -132,6 +132,29 @@
             transform: scale(1.15);
         }
 
+        .spin-btn {
+            width: 55px;
+            height: 55px;
+            border-radius: 50%;
+            font-size: 22px;
+            font-weight: bold;
+            background: #440000;
+            color: #ff4444;
+            border: 2px solid #880000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            margin: 0;
+            touch-action: manipulation;
+            transition: all 0.15s ease-out;
+        }
+        .spin-btn:active, .spin-btn.active {
+            background: #ff4444;
+            color: #000;
+            transform: scale(0.9);
+        }
+
         /* Mobile View - Joystick */
         #joystick-zone {
             flex: 1;
@@ -581,6 +604,12 @@
                 <span id="trimValue">-23°</span>
             </div>
 
+            <div class="speed-control">
+                <span>Magic:</span>
+                <input type="range" id="magicSlider" min="0" max="100" value="0">
+                <span id="magicValue">0%</span>
+            </div>
+
             <div class="grid">
                 <!-- Row 1: diag-left-up, forward, diag-right-up -->
                 <button class="diag-btn" id="btnAZ" onclick="sendCommand('AZ')">↖ Q+Z</button>
@@ -744,8 +773,10 @@
                     <button class="macro-btn" onclick="macroL()">L</button>
                     <button class="macro-btn" onclick="macroR()">R</button>
                 </div>
-                <div class="macro-bar" style="justify-content: center; margin-top: 10px;">
+                <div class="macro-bar" style="margin-top: 10px;">
+                    <button class="spin-btn" id="spinLeftBtn">↺</button>
                     <button class="macro-btn" onclick="macroG()">G</button>
+                    <button class="spin-btn" id="spinRightBtn">↻</button>
                 </div>
             </div>
         </div>
@@ -784,6 +815,16 @@
             trimValue.textContent = trimSlider.value + '°';
         });
 
+        // Magic slider
+        const magicSlider = document.getElementById('magicSlider');
+        const magicValue = document.getElementById('magicValue');
+        magicSlider.addEventListener('input', () => {
+            magicValue.textContent = magicSlider.value + '%';
+        });
+        function getMagic() {
+            return parseInt(magicSlider.value);
+        }
+
         let lastSentTime = 0;
         let gamepadIndex = null;
         let animationFrameId = null;
@@ -814,7 +855,7 @@
             // Clamp servo 0-180
             servo = Math.max(0, Math.min(180, servo));
 
-            const url = `http://${ip}/drive?m1=${m1}&servo=${servo}`;
+            const url = `http://${ip}/drive?m1=${m1}&servo=${servo}&magic=${getMagic()}`;
 
             // Update status displays
             document.getElementById('status').textContent = `m1=${m1} | servo=${servo}`;
@@ -1384,7 +1425,7 @@
         }
 
         function handleTouchStart(e) {
-            if (e.target.tagName === 'BUTTON' || e.target.classList.contains('gear-btn') || e.target.classList.contains('macro-btn')) return;
+            if (e.target.tagName === 'BUTTON' || e.target.classList.contains('gear-btn') || e.target.classList.contains('macro-btn') || e.target.classList.contains('spin-btn')) return;
             e.preventDefault();
             if (!joyActive) {
                 const touch = e.changedTouches[0];
@@ -1412,23 +1453,67 @@
                     joyActive = false;
                     touchId = null;
                     knob.style.transform = `translate(0px, 0px)`;
-                    sendRequest(0, SERVO_CENTER());
+                    emergencyStop();
                     break;
                 }
             }
         }
 
-        // Safety: if no touch is active, ensure motors are at 0
-        let lastStopSent = 0;
+        // Immediate stop: bypasses the request queue entirely for zero-lag halt
+        function emergencyStop() {
+            const ip = document.getElementById(IP_INPUT_ID).value;
+            if (!ip) return;
+            const url = `http://${ip}/drive?m1=0&servo=${SERVO_CENTER()}&magic=${getMagic()}`;
+            // Clear any queued movement commands
+            requestQueue = [];
+            // Fire-and-forget immediate fetch
+            fetch(url).catch(() => {});
+        }
+
+        // Aggressive 100ms touch-loss detection timer
         setInterval(() => {
-            if (!joyActive && isMobileView) {
-                const now = Date.now();
-                if (now - lastStopSent > 500) {
-                    sendRequest(0, SERVO_CENTER());
-                    lastStopSent = now;
-                }
+            if (!joyActive && !spinActive && isMobileView) {
+                emergencyStop();
             }
-        }, 300);
+        }, 100);
+
+        // --- Crazy Spin Buttons ---
+        let spinActive = false;
+        let spinInterval = null;
+
+        function startSpin(direction) {
+            spinActive = true;
+            const ip = document.getElementById(IP_INPUT_ID).value;
+            if (!ip) return;
+            // Send spin immediately, then repeat every 150ms to keep it alive
+            const url = `http://${ip}/drive?spin=${direction}`;
+            fetch(url).catch(() => {});
+            spinInterval = setInterval(() => {
+                fetch(url).catch(() => {});
+            }, 150);
+        }
+
+        function stopSpin() {
+            spinActive = false;
+            if (spinInterval) {
+                clearInterval(spinInterval);
+                spinInterval = null;
+            }
+            emergencyStop();
+        }
+
+        const spinLeftBtn = document.getElementById('spinLeftBtn');
+        const spinRightBtn = document.getElementById('spinRightBtn');
+        if (spinLeftBtn) {
+            spinLeftBtn.addEventListener('touchstart', (e) => { e.preventDefault(); startSpin(1); });
+            spinLeftBtn.addEventListener('touchend', (e) => { e.preventDefault(); stopSpin(); });
+            spinLeftBtn.addEventListener('touchcancel', (e) => { e.preventDefault(); stopSpin(); });
+        }
+        if (spinRightBtn) {
+            spinRightBtn.addEventListener('touchstart', (e) => { e.preventDefault(); startSpin(2); });
+            spinRightBtn.addEventListener('touchend', (e) => { e.preventDefault(); stopSpin(); });
+            spinRightBtn.addEventListener('touchcancel', (e) => { e.preventDefault(); stopSpin(); });
+        }
 
         function updateKnob(clientX, clientY) {
             const rect = base.getBoundingClientRect();

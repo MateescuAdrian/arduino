@@ -26,6 +26,9 @@ const int res = 8;
 const char *ssid = "DATABURGOS";
 const char *password = "257Denierz";
 
+const char *ssid2 = "Machuda";
+const char *password2 = "Deleanu41";
+
 AsyncWebServer server(80);
 
 // --- Servo angle tracking (estimated, no encoder) ---
@@ -74,10 +77,25 @@ void setup() {
   int stopDuty = map(90, 0, 180, 51, 102); // 1.5ms pulse = stop
   ledcWrite(SERVO_PIN, stopDuty);
 
+  // Try primary network first (DATABURGOS)
+  Serial.println("Connecting to DATABURGOS...");
   WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
+  int attempts = 0;
+  while (WiFi.status() != WL_CONNECTED && attempts < 10) { // 10 sec timeout
     delay(500);
     Serial.print(".");
+    attempts++;
+  }
+
+  // Fallback to secondary network (Machuda)
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("\nDATABURGOS failed, trying Machuda...");
+    WiFi.disconnect();
+    WiFi.begin(ssid2, password2);
+    while (WiFi.status() != WL_CONNECTED) {
+      delay(500);
+      Serial.print(".");
+    }
   }
   WiFi.setSleep(false);
 
@@ -94,41 +112,66 @@ void setup() {
   server.on("/drive", HTTP_GET, [](AsyncWebServerRequest *request) {
     String response = "Commands Processed: ";
     int baseSpeed = 0;
+    int magic = 0;
     int angle = 90;
     // 1. Single Parameter 'm1' controls BOTH motors
-    if ((request->hasParam("m1")) || (request->hasParam("servo"))) {
+    if ((request->hasParam("m1")) || (request->hasParam("servo")) ||
+        (request->hasParam("magic")) || (request->hasParam("spin"))) {
       if (request->hasParam("m1"))
         baseSpeed =
             constrain(request->getParam("m1")->value().toInt(), -255, 255);
+      if (request->hasParam("magic"))
+        magic = constrain(request->getParam("magic")->value().toInt(), 0, 100);
       if (request->hasParam("servo"))
         angle = constrain(request->getParam("servo")->value().toInt(), 0, 180);
-      // --- DIFFERENTIAL STEERING CALCULATION ---
-      // If angle < 90, we turn LEFT. Right motor stays full, Left motor slows
-      // down. If angle > 90, we turn RIGHT. Left motor stays full, Right motor
-      // slows down.
 
-      float leftFactor = 1.0;
-      float rightFactor = 1.0;
-      if (angle < 85) { // Turning Left
-        // Maps angle 0-85 to a multiplier of 0.0 to 1.0
-        leftFactor = angle / 85.0;
-      } else if (angle > 95) { // Turning Right
-        // Maps angle 180-95 to a multiplier of 0.0 to 1.0
-        rightFactor = (180.0 - angle) / 85.0;
-      }
+      int spin = 0;
+      if (request->hasParam("spin"))
+        spin = request->getParam("spin")->value().toInt();
 
-      int speedL = baseSpeed;
-      int speedR = baseSpeed;
-      if (baseSpeed != 0) {
-        int absSpeed = abs(baseSpeed);
-        int sign = (baseSpeed > 0) ? 1 : -1;
-        int delta = max(0, absSpeed - 220);
-        int baseFloor = min(absSpeed, 220);
-        
+      int speedL, speedR;
+
+      if (spin == 1) {
+        // Crazy Left: left motor backward, right motor forward
+        speedL = -255;
+        speedR = 255;
+        response += "SPIN LEFT ";
+      } else if (spin == 2) {
+        // Crazy Right: left motor forward, right motor backward
+        speedL = 255;
+        speedR = -255;
+        response += "SPIN RIGHT ";
+      } else {
+        // --- Normal DIFFERENTIAL STEERING CALCULATION ---
+        float leftFactor = 1.0;
+        float rightFactor = 1.0;
         if (angle < 85) {
-          speedL = sign * (baseFloor + (int)(delta * leftFactor));
+          leftFactor = angle / 85.0;
         } else if (angle > 95) {
-          speedR = sign * (baseFloor + (int)(delta * rightFactor));
+          rightFactor = (180.0 - angle) / 85.0;
+        }
+
+        speedL = baseSpeed;
+        speedR = baseSpeed;
+        if (baseSpeed != 0) {
+          int absSpeed = abs(baseSpeed);
+          int sign = (baseSpeed > 0) ? 1 : -1;
+          int delta = max(0, absSpeed - 220);
+          int baseFloor = min(absSpeed, 220);
+
+          if (angle < 85) {
+            speedL = sign * (baseFloor + (int)(delta * leftFactor));
+            // Magic: boost right wheel on left turns to compensate for hardware
+            // asymmetry magic is 0-100%, boost adds up to (255 - absSpeed) extra
+            // PWM to the right wheel
+            if (magic > 0) {
+              int headroom = 255 - absSpeed;
+              int boost = (int)(headroom * (magic / 100.0) * (1.0 - leftFactor));
+              speedR = sign * min(255, absSpeed + boost);
+            }
+          } else if (angle > 95) {
+            speedR = sign * (baseFloor + (int)(delta * rightFactor));
+          }
         }
       }
 
