@@ -37,7 +37,7 @@ int currentServoSpeed = 90; // current servo command (90 = stop)
 unsigned long lastServoUpdate = 0;
 unsigned long lastCommandTime = 0; // when the last /drive command arrived
 const unsigned long SERVO_TIMEOUT_MS =
-    200; // auto-stop if no command in this time
+    800; // auto-stop if no command in this time
 
 // Helper function to drive a motor with speed -255 to 255
 void setMotor(int p1, int p2, int speed) {
@@ -71,7 +71,7 @@ void setup() {
   ledcAttach(SERVO_PIN, 50, 10); // 10-bit resolution (0-1023)
 
   // 360 continuous servo: 90 = stop, 0 = full CW, 180 = full CCW
-  int stopDuty = map(90, 0, 180, 26, 123); // ~74 = 1.5ms pulse = stop
+  int stopDuty = map(90, 0, 180, 51, 102); // 1.5ms pulse = stop
   ledcWrite(SERVO_PIN, stopDuty);
 
   WiFi.begin(ssid, password);
@@ -193,11 +193,14 @@ void loop() {
     elapsed = 100;
 
   // Auto-stop servo if no command received recently
+  // Disabled per user request to hold steering purely based on commands
+  /*
   if (currentServoSpeed != 90 && (now - lastCommandTime) > SERVO_TIMEOUT_MS) {
     currentServoSpeed = 90;
-    int stopDuty = map(90, 0, 180, 26, 123);
+    int stopDuty = map(90, 0, 180, 51, 102);
     ledcWrite(SERVO_PIN, stopDuty);
   }
+  */
 
   if (elapsed > 0 && currentServoSpeed != 90) {
     float speedFactor = (currentServoSpeed - 90) / 90.0;

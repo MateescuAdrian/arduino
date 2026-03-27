@@ -25,8 +25,8 @@
             }
         })();
     </script>
-    <link rel="icon" href="icon.svg" type="image/svg+xml">
-    <link rel="apple-touch-icon" href="icon.svg">
+    <link rel="icon" href="icon.png" type="image/png">
+    <link rel="apple-touch-icon" href="icon.png">
     <title>ESP32 Robot Remote</title>
     <style>
         /* Base View Container */
@@ -54,6 +54,20 @@
             z-index: 100;
             white-space: nowrap;
             overflow: hidden;
+            text-shadow: 1px 1px 2px #000;
+        }
+
+        #mobile-hud-right {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            color: #ff9900;
+            font-family: monospace;
+            font-size: 14px;
+            pointer-events: none;
+            /* Passes clicks through */
+            z-index: 100;
+            text-align: right;
             text-shadow: 1px 1px 2px #000;
         }
 
@@ -141,13 +155,13 @@
         }
 
         .joystick-knob {
-            width: 80px;
-            height: 80px;
+            width: 40px;
+            height: 40px;
             background: rgba(0, 255, 0, 0.6);
             border-radius: 50%;
             position: absolute;
-            top: 60px;
-            left: 60px;
+            top: 80px;
+            left: 80px;
             box-shadow: 0 4px 8px rgba(0, 0, 0, 0.5);
             pointer-events: none;
         }
@@ -715,6 +729,7 @@
             m1: <span id="hud-m1">0</span><br>
             srv: <span id="hud-srv">90</span>
         </div>
+        <div id="mobile-hud-right">---</div>
         <div id="joystick-zone">
             <div class="joystick-base" id="joystickBase">
                 <div class="joystick-knob" id="joystickKnob"></div>
@@ -824,9 +839,16 @@
             isSending = true;
             const url = requestQueue.shift();
 
-            fetch(url, { mode: 'no-cors' })
-                .then(() => {
+            fetch(url)
+                .then(res => res.text())
+                .then(text => {
                     isSending = false;
+                    const match = text.match(/Motors=\s*(L\s*-?\d+\s*,\s*R-?\d+)/i);
+                    if (match) {
+                        const hudRight = document.getElementById('mobile-hud-right');
+                        if (hudRight) hudRight.textContent = match[1];
+                    }
+
                     if (requestQueue.length > 1) {
                         requestQueue = [requestQueue[requestQueue.length - 1]];
                     }
@@ -1385,18 +1407,28 @@
         }
 
         function handleTouchEnd(e) {
-            if (joyActive) {
-                for (let i = 0; i < e.changedTouches.length; i++) {
-                    if (e.changedTouches[i].identifier === touchId) {
-                        joyActive = false;
-                        touchId = null;
-                        knob.style.transform = `translate(0px, 0px)`;
-                        sendRequest(0, SERVO_CENTER());
-                        break;
-                    }
+            for (let i = 0; i < e.changedTouches.length; i++) {
+                if (e.changedTouches[i].identifier === touchId || !joyActive) {
+                    joyActive = false;
+                    touchId = null;
+                    knob.style.transform = `translate(0px, 0px)`;
+                    sendRequest(0, SERVO_CENTER());
+                    break;
                 }
             }
         }
+
+        // Safety: if no touch is active, ensure motors are at 0
+        let lastStopSent = 0;
+        setInterval(() => {
+            if (!joyActive && isMobileView) {
+                const now = Date.now();
+                if (now - lastStopSent > 500) {
+                    sendRequest(0, SERVO_CENTER());
+                    lastStopSent = now;
+                }
+            }
+        }, 300);
 
         function updateKnob(clientX, clientY) {
             const rect = base.getBoundingClientRect();
@@ -1428,16 +1460,23 @@
                 // Motor speed is proportional to relative distance to center
                 let magnitude = distance / maxDist; // 0.0 to 1.0
 
-                // Angle of cursor relative to horizontal X-axis
+                // Angle of cursor relative to horizontal X-axis (0=right, 90=up, 180=left)
                 let angleRad = Math.atan2(-deltaY, deltaX);
-                let angleDeg = Math.abs(angleRad * 180 / Math.PI);
-                let absAngleFromHoriz = (angleDeg > 90) ? (180 - angleDeg) : angleDeg;
+                let angleDeg = angleRad * 180 / Math.PI; // -180 to 180
+                if (angleDeg < 0) angleDeg += 360;       // 0 to 360
 
+                // Compute "vertical angle" = how far from the horizontal axis (0-90)
+                // 0 = perfectly horizontal, 90 = perfectly vertical
+                let vertAngle;
+                if (angleDeg <= 90)        vertAngle = angleDeg;       // Q1: 0->90
+                else if (angleDeg <= 180)  vertAngle = 180 - angleDeg; // Q2: 90->0
+                else if (angleDeg <= 270)  vertAngle = angleDeg - 180; // Q3: 0->90
+                else                       vertAngle = 360 - angleDeg; // Q4: 90->0
+
+                // Power factor: 0 at 0-deg (horizontal), ramps to 1.0 at 30-deg, stays 1.0 above
                 let powerFactor = 1.0;
-                // If angle is within +/- 30 degrees of the horizontal axis, scale it proportionally
-                if (absAngleFromHoriz <= 30) {
-                    // 0 at 0 deg, max (1.0) at 30 deg
-                    powerFactor = absAngleFromHoriz / 30.0;
+                if (vertAngle <= 30) {
+                    powerFactor = vertAngle / 30.0;
                 }
 
                 // Sign of speed: positive if cursor is above center, negative if below
@@ -1447,14 +1486,27 @@
 
                 let m1 = magnitude * powerFactor * currentMaxSpeed * speedSign;
 
-                // Steering (Joystick X positive means RIGHT)
-                let turn = nx;
+                // --- Steering angle mapping ---
+                // vertAngle: 0 = horizontal, 90 = vertical
+                // 0-30°  -> full lock (servo = 0 or 180)
+                // 30-90° -> proportional from full lock to center (90)
+                let servo;
+                if (vertAngle <= 30) {
+                    // Full steering lock
+                    servo = (deltaX >= 0) ? 180 : 0;
+                } else {
+                    // Proportional: at 30° = full lock, at 90° = center (90)
+                    let t = (vertAngle - 30) / 60.0; // 0 at 30°, 1 at 90°
+                    if (deltaX >= 0) {
+                        servo = 180 - t * (180 - SERVO_CENTER()); // 180 -> center
+                    } else {
+                        servo = 0 + t * SERVO_CENTER();           // 0 -> center
+                    }
+                }
+
                 const invertSteering = document.getElementById('invertSteering').checked;
-                if (invertSteering) turn = -turn;
+                if (invertSteering) servo = 180 - servo;
 
-                if (Math.abs(turn) < DEADZONE) turn = 0;
-
-                let servo = SERVO_CENTER() + (turn * 90);
                 servo = Math.max(0, Math.min(180, servo));
 
                 // Global deadzone
@@ -1470,6 +1522,7 @@
 
         // --- Connectivity Check ---
         function checkConnectivity() {
+            return;
             const ipEl = document.getElementById(IP_INPUT_ID);
             if (!ipEl || !ipEl.value) return;
 
