@@ -1,0 +1,7 @@
+{
+    "idf.currentSetup": "/home/adrian/esp/v5.5.1/esp-idf",
+    "idf.flashType": "DFU",
+    "idf.openOcdConfigs": [
+        "board/esp32s2-kaluga-1.cfg"
+    ]
+}

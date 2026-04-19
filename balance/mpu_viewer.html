@@ -1,0 +1,854 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MPU-6050 3D Viewer</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: #0a0a0f;
+      color: #e0e0e0;
+      overflow: hidden;
+      height: 100vh;
+      width: 100vw;
+    }
+
+    /* Animated background gradient */
+    .bg-glow {
+      position: fixed;
+      top: -50%;
+      left: -50%;
+      width: 200%;
+      height: 200%;
+      background: radial-gradient(ellipse at 30% 50%, rgba(56, 189, 248, 0.04) 0%, transparent 50%),
+        radial-gradient(ellipse at 70% 50%, rgba(168, 85, 247, 0.04) 0%, transparent 50%);
+      animation: bgPulse 8s ease-in-out infinite alternate;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    @keyframes bgPulse {
+      0% {
+        transform: translate(0, 0) scale(1);
+      }
+
+      100% {
+        transform: translate(-2%, -1%) scale(1.05);
+      }
+    }
+
+    #canvas-container {
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    /* Header */
+    .header {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 28px;
+      background: linear-gradient(180deg, rgba(10, 10, 15, 0.95) 0%, rgba(10, 10, 15, 0) 100%);
+      backdrop-filter: blur(12px);
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .logo-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #38bdf8, #a855f7);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      font-weight: 700;
+      color: #fff;
+      box-shadow: 0 0 20px rgba(56, 189, 248, 0.3);
+    }
+
+    .header-title {
+      font-size: 18px;
+      font-weight: 600;
+      background: linear-gradient(135deg, #38bdf8, #a855f7);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      letter-spacing: -0.3px;
+    }
+
+    .header-subtitle {
+      font-size: 11px;
+      color: #64748b;
+      font-weight: 400;
+      margin-top: 1px;
+    }
+
+    /* Connect button */
+    #connectBtn {
+      font-family: 'Inter', sans-serif;
+      padding: 10px 24px;
+      border: none;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      background: linear-gradient(135deg, #38bdf8, #818cf8);
+      color: #fff;
+      box-shadow: 0 4px 20px rgba(56, 189, 248, 0.3);
+      letter-spacing: 0.2px;
+    }
+
+    #connectBtn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 28px rgba(56, 189, 248, 0.45);
+    }
+
+    #connectBtn.connected {
+      background: linear-gradient(135deg, #22c55e, #16a34a);
+      box-shadow: 0 4px 20px rgba(34, 197, 94, 0.3);
+    }
+
+    #connectBtn.connected:hover {
+      box-shadow: 0 6px 28px rgba(34, 197, 94, 0.45);
+    }
+
+    /* Status indicator */
+    .status-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-right: 8px;
+      background: #ef4444;
+      box-shadow: 0 0 8px rgba(239, 68, 68, 0.5);
+      transition: all 0.3s;
+    }
+
+    .status-dot.active {
+      background: #22c55e;
+      box-shadow: 0 0 8px rgba(34, 197, 94, 0.5);
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+
+      0%,
+      100% {
+        box-shadow: 0 0 8px rgba(34, 197, 94, 0.5);
+      }
+
+      50% {
+        box-shadow: 0 0 16px rgba(34, 197, 94, 0.8);
+      }
+    }
+
+    /* Angle panels */
+    .panel {
+      position: fixed;
+      z-index: 10;
+      background: rgba(15, 15, 25, 0.85);
+      backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 16px;
+      padding: 20px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    }
+
+    .panel-left {
+      bottom: 28px;
+      left: 28px;
+      min-width: 220px;
+    }
+
+    .panel-right {
+      bottom: 28px;
+      right: 28px;
+      min-width: 200px;
+    }
+
+    .panel-title {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: #64748b;
+      margin-bottom: 16px;
+      font-weight: 600;
+    }
+
+    .angle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    }
+
+    .angle-row:last-child {
+      border-bottom: none;
+    }
+
+    .angle-label {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      font-weight: 500;
+      color: #94a3b8;
+    }
+
+    .angle-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 3px;
+    }
+
+    .angle-dot.pitch {
+      background: #f43f5e;
+      box-shadow: 0 0 8px rgba(244, 63, 94, 0.4);
+    }
+
+    .angle-dot.roll {
+      background: #22c55e;
+      box-shadow: 0 0 8px rgba(34, 197, 94, 0.4);
+    }
+
+    .angle-dot.yaw {
+      background: #3b82f6;
+      box-shadow: 0 0 8px rgba(59, 130, 246, 0.4);
+    }
+
+    .angle-value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 18px;
+      font-weight: 500;
+      min-width: 90px;
+      text-align: right;
+    }
+
+    .angle-value.pitch {
+      color: #f43f5e;
+    }
+
+    .angle-value.roll {
+      color: #22c55e;
+    }
+
+    .angle-value.yaw {
+      color: #3b82f6;
+    }
+
+    .angle-unit {
+      font-size: 12px;
+      color: #475569;
+      margin-left: 2px;
+    }
+
+    /* Info panel */
+    .info-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 6px 0;
+      font-size: 13px;
+    }
+
+    .info-label {
+      color: #64748b;
+    }
+
+    .info-value {
+      font-family: 'JetBrains Mono', monospace;
+      color: #cbd5e1;
+      font-size: 13px;
+    }
+
+    .temp-value {
+      color: #fb923c;
+      font-weight: 600;
+    }
+
+    /* Reset yaw button */
+    #resetYawBtn {
+      font-family: 'Inter', sans-serif;
+      width: 100%;
+      margin-top: 14px;
+      padding: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.03);
+      color: #94a3b8;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    #resetYawBtn:hover {
+      background: rgba(255, 255, 255, 0.07);
+      color: #e2e8f0;
+      border-color: rgba(255, 255, 255, 0.15);
+    }
+
+    /* Axes legend */
+    .axes-legend {
+      position: fixed;
+      bottom: 28px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 10;
+      display: flex;
+      gap: 20px;
+      background: rgba(15, 15, 25, 0.7);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 10px;
+      padding: 8px 18px;
+      font-size: 11px;
+      color: #64748b;
+    }
+
+    .axes-legend span {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .axis-color {
+      display: inline-block;
+      width: 14px;
+      height: 3px;
+      border-radius: 2px;
+    }
+
+    .axis-color.x {
+      background: #f43f5e;
+    }
+
+    .axis-color.y {
+      background: #22c55e;
+    }
+
+    .axis-color.z {
+      background: #3b82f6;
+    }
+
+    /* No serial support warning */
+    .no-serial {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 0, 0, 0.9);
+    }
+
+    .no-serial-box {
+      background: rgba(20, 20, 30, 0.95);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      border-radius: 16px;
+      padding: 32px;
+      max-width: 420px;
+      text-align: center;
+    }
+
+    .no-serial-box h2 {
+      color: #ef4444;
+      font-size: 18px;
+      margin-bottom: 12px;
+    }
+
+    .no-serial-box p {
+      color: #94a3b8;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="bg-glow"></div>
+  <div id="canvas-container"></div>
+
+  <!-- Header -->
+  <div class="header">
+    <div class="header-left">
+      <div class="logo-icon">M</div>
+      <div>
+        <div class="header-title">MPU-6050 3D Viewer</div>
+        <div class="header-subtitle">
+          <span class="status-dot" id="statusDot"></span>
+          <span id="statusText">Disconnected</span>
+        </div>
+      </div>
+    </div>
+    <button id="connectBtn" onclick="toggleSerial()">Connect Serial</button>
+  </div>
+
+  <!-- Angles panel -->
+  <div class="panel panel-left">
+    <div class="panel-title">Orientation</div>
+    <div class="angle-row">
+      <div class="angle-label">
+        <div class="angle-dot pitch"></div>Pitch (X)
+      </div>
+      <div class="angle-value pitch" id="pitchVal">0.00<span class="angle-unit">°</span></div>
+    </div>
+    <div class="angle-row">
+      <div class="angle-label">
+        <div class="angle-dot roll"></div>Roll (Y)
+      </div>
+      <div class="angle-value roll" id="rollVal">0.00<span class="angle-unit">°</span></div>
+    </div>
+    <div class="angle-row">
+      <div class="angle-label">
+        <div class="angle-dot yaw"></div>Yaw (Z)
+      </div>
+      <div class="angle-value yaw" id="yawVal">0.00<span class="angle-unit">°</span></div>
+    </div>
+    <button id="resetYawBtn" onclick="resetYaw()">Reset Yaw</button>
+  </div>
+
+  <!-- Info panel -->
+  <div class="panel panel-right">
+    <div class="panel-title">Sensor Info</div>
+    <div class="info-row">
+      <span class="info-label">Temperature</span>
+      <span class="info-value temp-value" id="tempVal">--</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Update Rate</span>
+      <span class="info-value" id="rateVal">--</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Baud Rate</span>
+      <span class="info-value">115200</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">I2C Pins</span>
+      <span class="info-value">SDA:36 SCL:37</span>
+    </div>
+  </div>
+
+  <!-- Axes legend -->
+  <div class="axes-legend">
+    <span><span class="axis-color x"></span>X (Pitch)</span>
+    <span><span class="axis-color y"></span>Y (Roll)</span>
+    <span><span class="axis-color z"></span>Z (Yaw)</span>
+  </div>
+
+  <!-- No Serial API warning -->
+  <div class="no-serial" id="noSerialWarning" style="display:none;">
+    <div class="no-serial-box">
+      <h2>⚠️ Web Serial Not Supported</h2>
+      <p>This browser doesn't support the Web Serial API.<br>
+        Please use <strong>Google Chrome</strong> or <strong>Microsoft Edge</strong> (desktop) to use this tool.</p>
+    </div>
+  </div>
+
+  <!-- Three.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+  <script>
+    // ── Check Web Serial support ──
+    if (!('serial' in navigator)) {
+      document.getElementById('noSerialWarning').style.display = 'flex';
+    }
+
+    // ── State ──
+    let port = null;
+    let reader = null;
+    let connected = false;
+    let pitch = 0, roll = 0, yaw = 0, temp = 0;
+    let yawOffset = 0;
+    let targetPitch = 0, targetRoll = 0, targetYaw = 0;
+    let msgCount = 0;
+    let lastRateTime = performance.now();
+    let lastRate = 0;
+
+    // ── Three.js setup ──
+    const container = document.getElementById('canvas-container');
+    const scene = new THREE.Scene();
+
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(4, 3, 5);
+    camera.lookAt(0, 0, 0);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setClearColor(0x0a0a0f, 1);
+    renderer.shadowMap.enabled = true;
+    container.appendChild(renderer.domElement);
+
+    // Lighting
+    const ambientLight = new THREE.AmbientLight(0x404060, 0.6);
+    scene.add(ambientLight);
+
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    dirLight.position.set(5, 8, 5);
+    dirLight.castShadow = true;
+    scene.add(dirLight);
+
+    const pointLight1 = new THREE.PointLight(0x38bdf8, 0.5, 20);
+    pointLight1.position.set(-3, 3, 3);
+    scene.add(pointLight1);
+
+    const pointLight2 = new THREE.PointLight(0xa855f7, 0.4, 20);
+    pointLight2.position.set(3, -2, -3);
+    scene.add(pointLight2);
+
+    // ── Board (PCB) Model ──
+    const boardGroup = new THREE.Group();
+
+    // PCB body — landscape: wider along Z
+    const pcbGeometry = new THREE.BoxGeometry(1.6, 0.15, 2.4);
+    const pcbMaterial = new THREE.MeshPhysicalMaterial({
+      color: 0x1a4a2e,
+      roughness: 0.6,
+      metalness: 0.1,
+      clearcoat: 0.3,
+    });
+    const pcb = new THREE.Mesh(pcbGeometry, pcbMaterial);
+    boardGroup.add(pcb);
+
+    // Chip on top
+    const chipGeometry = new THREE.BoxGeometry(0.6, 0.12, 0.6);
+    const chipMaterial = new THREE.MeshPhysicalMaterial({
+      color: 0x1a1a2e,
+      roughness: 0.3,
+      metalness: 0.6,
+    });
+    const chip = new THREE.Mesh(chipGeometry, chipMaterial);
+    chip.position.set(0, 0.135, 0);
+    boardGroup.add(chip);
+
+    // Chip label
+    const canvas2d = document.createElement('canvas');
+    canvas2d.width = 128;
+    canvas2d.height = 128;
+    const ctx2d = canvas2d.getContext('2d');
+    ctx2d.fillStyle = '#1a1a2e';
+    ctx2d.fillRect(0, 0, 128, 128);
+    ctx2d.fillStyle = '#aaa';
+    ctx2d.font = 'bold 22px monospace';
+    ctx2d.textAlign = 'center';
+    ctx2d.textBaseline = 'middle';
+    ctx2d.fillText('MPU', 64, 48);
+    ctx2d.fillText('6050', 64, 80);
+    const labelTexture = new THREE.CanvasTexture(canvas2d);
+    const labelGeom = new THREE.PlaneGeometry(0.5, 0.5);
+    const labelMat = new THREE.MeshBasicMaterial({ map: labelTexture, transparent: true });
+    const label = new THREE.Mesh(labelGeom, labelMat);
+    label.position.set(0, 0.2, 0);
+    label.rotation.x = -Math.PI / 2;
+    boardGroup.add(label);
+
+    // Pin headers — along the long edge (Z axis)
+    const pinGeom = new THREE.CylinderGeometry(0.03, 0.03, 0.35, 6);
+    const pinMat = new THREE.MeshPhysicalMaterial({ color: 0xcccccc, metalness: 0.9, roughness: 0.2 });
+    for (let i = 0; i < 8; i++) {
+      const pin = new THREE.Mesh(pinGeom, pinMat);
+      pin.position.set(-0.65, -0.075 - 0.175, -0.9 + i * 0.25);
+      boardGroup.add(pin);
+    }
+
+    // Solder pads
+    const padGeom = new THREE.CylinderGeometry(0.06, 0.06, 0.01, 12);
+    const padMat = new THREE.MeshPhysicalMaterial({ color: 0xd4a84b, metalness: 0.8, roughness: 0.3 });
+    for (let i = 0; i < 8; i++) {
+      const pad = new THREE.Mesh(padGeom, padMat);
+      pad.position.set(-0.65, 0.08, -0.9 + i * 0.25);
+      boardGroup.add(pad);
+    }
+
+    // PCB traces (decorative)
+    const traceMat = new THREE.MeshBasicMaterial({ color: 0x2a7a4e });
+    for (let i = 0; i < 5; i++) {
+      const traceGeom = new THREE.BoxGeometry(0.2 + Math.random() * 0.5, 0.001, 0.02);
+      const trace = new THREE.Mesh(traceGeom, traceMat);
+      trace.position.set(0.2 + Math.random() * 0.3, 0.076, -0.5 + i * 0.3);
+      boardGroup.add(trace);
+    }
+
+    scene.add(boardGroup);
+
+    // ── Axis arrows ──
+    const axisLength = 2.0;
+    // X axis - red (pitch)
+    const xArrow = new THREE.ArrowHelper(
+      new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0, 0),
+      axisLength, 0xf43f5e, 0.15, 0.1
+    );
+    boardGroup.add(xArrow);
+
+    // Y axis - green (roll)
+    const yArrow = new THREE.ArrowHelper(
+      new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 0),
+      axisLength, 0x22c55e, 0.15, 0.1
+    );
+    boardGroup.add(yArrow);
+
+    // Z axis - blue (yaw)
+    const zArrow = new THREE.ArrowHelper(
+      new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, 0),
+      axisLength, 0x3b82f6, 0.15, 0.1
+    );
+    boardGroup.add(zArrow);
+
+    // ── Grid ──
+    const gridHelper = new THREE.GridHelper(10, 20, 0x1a1a2e, 0x111118);
+    gridHelper.position.y = -2;
+    scene.add(gridHelper);
+
+    // ── Ground reference ring ──
+    const ringGeom = new THREE.RingGeometry(1.8, 1.85, 64);
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: 0x38bdf8,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.15,
+    });
+    const ring = new THREE.Mesh(ringGeom, ringMat);
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = -2;
+    scene.add(ring);
+
+    // ── Camera orbit ──
+    let isDragging = false;
+    let prevMouse = { x: 0, y: 0 };
+    let cameraAngle = { theta: Math.PI / 2, phi: Math.PI / 5 };
+    let cameraDistance = 7;
+
+    renderer.domElement.addEventListener('mousedown', (e) => {
+      isDragging = true;
+      prevMouse = { x: e.clientX, y: e.clientY };
+    });
+
+    renderer.domElement.addEventListener('mousemove', (e) => {
+      if (!isDragging) return;
+      const dx = e.clientX - prevMouse.x;
+      const dy = e.clientY - prevMouse.y;
+      cameraAngle.theta -= dx * 0.005;
+      cameraAngle.phi = Math.max(0.05, Math.min(Math.PI / 2 - 0.05, cameraAngle.phi + dy * 0.005));
+      prevMouse = { x: e.clientX, y: e.clientY };
+    });
+
+    renderer.domElement.addEventListener('mouseup', () => isDragging = false);
+    renderer.domElement.addEventListener('mouseleave', () => isDragging = false);
+
+    renderer.domElement.addEventListener('wheel', (e) => {
+      cameraDistance = Math.max(3, Math.min(15, cameraDistance + e.deltaY * 0.005));
+    });
+
+    // ── Touch support for mobile ──
+    renderer.domElement.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 1) {
+        isDragging = true;
+        prevMouse = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      }
+    });
+
+    renderer.domElement.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      if (!isDragging || e.touches.length !== 1) return;
+      const dx = e.touches[0].clientX - prevMouse.x;
+      const dy = e.touches[0].clientY - prevMouse.y;
+      cameraAngle.theta -= dx * 0.005;
+      cameraAngle.phi = Math.max(0.05, Math.min(Math.PI / 2 - 0.05, cameraAngle.phi + dy * 0.005));
+      prevMouse = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    }, { passive: false });
+
+    renderer.domElement.addEventListener('touchend', () => isDragging = false);
+
+    // ── Resize ──
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // Shortest-path angle interpolation (handles ±180° wrapping)
+    function lerpAngle(current, target, factor) {
+      let diff = target - current;
+      // Wrap difference to [-180, 180]
+      while (diff > 180) diff -= 360;
+      while (diff < -180) diff += 360;
+      return current + diff * factor;
+    }
+
+    // Set rotation order to avoid gimbal lock
+    boardGroup.rotation.order = 'YXZ';
+
+    // ── Animate ──
+    function animate() {
+      requestAnimationFrame(animate);
+
+      // Smooth interpolation with angle wrapping
+      pitch = lerpAngle(pitch, targetPitch, 0.2);
+      roll = lerpAngle(roll, targetRoll, 0.2);
+      yaw = lerpAngle(yaw, targetYaw, 0.2);
+
+      // Apply rotation — swapped pitch/roll for landscape MPU
+      boardGroup.rotation.x = roll * Math.PI / 180;
+      boardGroup.rotation.z = -pitch * Math.PI / 180;
+      boardGroup.rotation.y = yaw * Math.PI / 180;
+
+      // Update camera orbit
+      camera.position.x = cameraDistance * Math.cos(cameraAngle.phi) * Math.sin(cameraAngle.theta);
+      camera.position.y = cameraDistance * Math.sin(cameraAngle.phi);
+      camera.position.z = cameraDistance * Math.cos(cameraAngle.phi) * Math.cos(cameraAngle.theta);
+      camera.lookAt(0, 0, 0);
+
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    // ── Serial handling ──
+    async function toggleSerial() {
+      if (connected) {
+        await disconnectSerial();
+      } else {
+        await connectSerial();
+      }
+    }
+
+    async function connectSerial() {
+      try {
+        port = await navigator.serial.requestPort();
+        await port.open({ baudRate: 115200 });
+
+        connected = true;
+        document.getElementById('connectBtn').textContent = 'Disconnect';
+        document.getElementById('connectBtn').classList.add('connected');
+        document.getElementById('statusDot').classList.add('active');
+        document.getElementById('statusText').textContent = 'Connected';
+
+        readSerialLoop();
+      } catch (err) {
+        console.error('Serial connection failed:', err);
+        let msg = 'Connection failed: ' + err.message;
+        if (err.message.includes('denied') || err.message.includes('busy')) {
+          msg += '\n\n• Close Arduino Serial Monitor first\n• Make sure no other program is using the port';
+        } else if (err.message.includes('No port selected')) {
+          msg += '\n\nYou must select a serial port from the dialog.';
+        }
+        alert(msg);
+      }
+    }
+
+    async function disconnectSerial() {
+      connected = false;
+
+      if (reader) {
+        try { await reader.cancel(); } catch (e) { }
+        reader = null;
+      }
+
+      if (port) {
+        try { await port.close(); } catch (e) { }
+        port = null;
+      }
+
+      document.getElementById('connectBtn').textContent = 'Connect Serial';
+      document.getElementById('connectBtn').classList.remove('connected');
+      document.getElementById('statusDot').classList.remove('active');
+      document.getElementById('statusText').textContent = 'Disconnected';
+    }
+
+    async function readSerialLoop() {
+      const decoder = new TextDecoderStream();
+      const readableStreamClosed = port.readable.pipeTo(decoder.writable);
+      reader = decoder.readable.getReader();
+
+      let lineBuffer = '';
+
+      try {
+        while (connected) {
+          const { value, done } = await reader.read();
+          if (done) break;
+
+          lineBuffer += value;
+          const lines = lineBuffer.split('\n');
+          lineBuffer = lines.pop(); // keep incomplete line in buffer
+
+          for (const line of lines) {
+            parseLine(line.trim());
+          }
+        }
+      } catch (err) {
+        if (connected) console.error('Read error:', err);
+      }
+    }
+
+    function parseLine(line) {
+      // Format: P:pitch,R:roll,Y:yaw,T:temp
+      if (!line.startsWith('P:')) return;
+
+      const parts = line.split(',');
+      if (parts.length < 4) return;
+
+      try {
+        const p = parseFloat(parts[0].substring(2));
+        const r = parseFloat(parts[1].substring(2));
+        const y = parseFloat(parts[2].substring(2));
+        const t = parseFloat(parts[3].substring(2));
+
+        if (!isNaN(p) && !isNaN(r) && !isNaN(y) && !isNaN(t)) {
+          targetPitch = p;
+          targetRoll = r;
+          targetYaw = y - yawOffset;
+          temp = t;
+
+          // Update UI
+          document.getElementById('pitchVal').innerHTML = p.toFixed(2) + '<span class="angle-unit">°</span>';
+          document.getElementById('rollVal').innerHTML = r.toFixed(2) + '<span class="angle-unit">°</span>';
+          document.getElementById('yawVal').innerHTML = (y - yawOffset).toFixed(2) + '<span class="angle-unit">°</span>';
+          document.getElementById('tempVal').textContent = t.toFixed(1) + ' °C';
+
+          // Update rate
+          msgCount++;
+          const now = performance.now();
+          if (now - lastRateTime >= 1000) {
+            lastRate = msgCount;
+            msgCount = 0;
+            lastRateTime = now;
+            document.getElementById('rateVal').textContent = lastRate + ' Hz';
+          }
+        }
+      } catch (e) { }
+    }
+
+    function resetYaw() {
+      yawOffset = targetYaw + yawOffset;
+    }
+  </script>
+</body>
+
+</html>
